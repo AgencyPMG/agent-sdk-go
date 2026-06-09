@@ -1153,6 +1153,16 @@ func WithFileData(filename, mimeType string, data []byte) interfaces.GenerateOpt
 	}
 }
 
+// WithCodeExecution enables OpenAI's hosted code interpreter so the model can run
+// code (e.g. pandas over an uploaded CSV/XLSX) to answer the prompt. Files attached
+// via WithFileID are mounted into the sandbox container. This routes the request
+// through the Responses API.
+func WithCodeExecution() interfaces.GenerateOption {
+	return func(options *interfaces.GenerateOptions) {
+		options.CodeExecution = true
+	}
+}
+
 // GenerateDetailed generates text and returns detailed response information including token usage
 func (c *OpenAIClient) GenerateDetailed(ctx context.Context, prompt string, options ...interfaces.GenerateOption) (*interfaces.LLMResponse, error) {
 	return c.generateInternal(ctx, prompt, options...)

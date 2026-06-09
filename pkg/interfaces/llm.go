@@ -38,6 +38,7 @@ type GenerateOptions struct {
 	StreamConfig        *StreamConfig   // Optional streaming configuration
 	CacheConfig         *CacheConfig    // Optional prompt caching configuration (Anthropic only)
 	FileInputs          []FileInput     // Optional file inputs for providers that support them
+	CodeExecution       bool            // When true, enable the provider's hosted code-execution tool (e.g. OpenAI code interpreter) to run code over the file inputs
 }
 
 // FileInput describes a file passed directly to the model input.

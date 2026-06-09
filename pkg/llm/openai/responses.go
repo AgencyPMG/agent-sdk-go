@@ -16,7 +16,7 @@ import (
 )
 
 func (c *OpenAIClient) shouldUseResponsesAPI(params *interfaces.GenerateOptions, _ []interfaces.Tool) bool {
-	if params != nil && len(params.FileInputs) > 0 {
+	if params != nil && (len(params.FileInputs) > 0 || params.CodeExecution) {
 		return true
 	}
 	return c.useResponsesAPI
@@ -75,6 +75,14 @@ func validateResponsesAPIOptions(params *interfaces.GenerateOptions) error {
 		}
 	}
 
+	if params.CodeExecution {
+		for i, file := range params.FileInputs {
+			if file.FileID == "" {
+				return fmt.Errorf("openai code execution file input %d must be an uploaded FileID; URL and inline data are not supported by the code interpreter container", i)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -98,6 +106,9 @@ func (c *OpenAIClient) generateWithResponsesAPI(ctx context.Context, prompt stri
 		req.Tools = buildResponseTools(tools)
 		req.ToolChoice = responses.ResponseNewParamsToolChoiceUnion{OfToolChoiceMode: param.NewOpt(responses.ToolChoiceOptionsAuto)}
 		req.ParallelToolCalls = param.NewOpt(true)
+	}
+	if params.CodeExecution {
+		req.Tools = append(req.Tools, buildCodeExecutionTool(codeExecFileIDs(params)))
 	}
 
 	maxIterations := params.MaxIterations
@@ -159,7 +170,14 @@ func (c *OpenAIClient) newResponseRequest(prompt string, params *interfaces.Gene
 	if params.SystemMessage != "" {
 		input = append(input, responses.ResponseInputItemUnionParam{OfMessage: responseMessage("system", params.SystemMessage)})
 	}
-	input = append(input, responses.ResponseInputItemUnionParam{OfMessage: responseUserMessage(prompt, params.FileInputs)})
+	// When code execution is enabled, files are mounted into the sandbox container
+	// (see buildCodeExecutionTool), so the user turn carries only the prompt text.
+	// Otherwise files are attached as readable input_file content.
+	if params.CodeExecution {
+		input = append(input, responses.ResponseInputItemUnionParam{OfMessage: responseMessage("user", prompt)})
+	} else {
+		input = append(input, responses.ResponseInputItemUnionParam{OfMessage: responseUserMessage(prompt, params.FileInputs)})
+	}
 
 	req := responses.ResponseNewParams{
 		Input: responses.ResponseNewParamsInputUnion{OfInputItemList: input},
@@ -269,6 +287,29 @@ func buildResponseTools(tools []interfaces.Tool) []responses.ToolUnionParam {
 		openaiTools[i].OfFunction.Description = param.NewOpt(tool.Description())
 	}
 	return openaiTools
+}
+
+// buildCodeExecutionTool returns OpenAI's hosted code interpreter tool, mounting
+// any uploaded files into its "auto" sandbox container so the model can run code
+// (e.g. pandas) over them.
+func buildCodeExecutionTool(fileIDs []string) responses.ToolUnionParam {
+	container := responses.ToolCodeInterpreterContainerCodeInterpreterContainerAutoParam{}
+	if len(fileIDs) > 0 {
+		container.FileIDs = fileIDs
+	}
+	return responses.ToolParamOfCodeInterpreter(container)
+}
+
+// codeExecFileIDs collects the uploaded file IDs to mount into the code
+// interpreter sandbox. Validation guarantees code-execution files are FileIDs.
+func codeExecFileIDs(params *interfaces.GenerateOptions) []string {
+	ids := make([]string, 0, len(params.FileInputs))
+	for _, f := range params.FileInputs {
+		if f.FileID != "" {
+			ids = append(ids, f.FileID)
+		}
+	}
+	return ids
 }
 
 func responseFunctionCalls(resp *responses.Response) []responses.ResponseFunctionToolCall {
