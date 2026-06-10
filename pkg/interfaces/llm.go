@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"path/filepath"
+	"strings"
 )
 
 // LLM represents a large language model provider
@@ -134,6 +136,22 @@ func WithFileData(filename, mimeType string, data []byte) GenerateOption {
 func WithCodeExecution() GenerateOption {
 	return func(options *GenerateOptions) {
 		options.CodeExecution = true
+	}
+}
+
+// ContentTypeForFilename infers a MIME type from a filename extension for the data
+// file types commonly analyzed via code execution. Returns an empty string for
+// unknown extensions, letting the provider infer the type.
+func ContentTypeForFilename(name string) string {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".csv":
+		return "text/csv"
+	case ".xlsx":
+		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	case ".xls":
+		return "application/vnd.ms-excel"
+	default:
+		return ""
 	}
 }
 

@@ -6,8 +6,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
+	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	openaiapi "github.com/openai/openai-go/v2"
 )
 
@@ -21,23 +21,7 @@ func (c *OpenAIClient) UploadUserDataFile(ctx context.Context, path string) (str
 	defer file.Close()
 
 	name := filepath.Base(path)
-	return c.UploadUserData(ctx, file, name, contentTypeForFilename(name))
-}
-
-// contentTypeForFilename infers a MIME type from a filename extension for the
-// data file types commonly analyzed via code interpreter. Returns an empty
-// string for unknown extensions, letting the API infer the type.
-func contentTypeForFilename(name string) string {
-	switch strings.ToLower(filepath.Ext(name)) {
-	case ".csv":
-		return "text/csv"
-	case ".xlsx":
-		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-	case ".xls":
-		return "application/vnd.ms-excel"
-	default:
-		return ""
-	}
+	return c.UploadUserData(ctx, file, name, interfaces.ContentTypeForFilename(name))
 }
 
 // UploadUserData uploads file content for later use as a model input and returns
