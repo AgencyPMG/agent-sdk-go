@@ -11,6 +11,9 @@ import (
 	openaiapi "github.com/openai/openai-go/v2"
 )
 
+// OpenAIClient implements the file-upload capability.
+var _ interfaces.FileUploader = (*OpenAIClient)(nil)
+
 // UploadUserDataFile uploads a local file for later use as a model input and
 // returns the OpenAI file ID.
 func (c *OpenAIClient) UploadUserDataFile(ctx context.Context, path string) (string, error) {

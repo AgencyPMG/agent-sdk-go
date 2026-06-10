@@ -13,6 +13,9 @@ import (
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 )
 
+// GeminiClient implements the file-upload capability.
+var _ interfaces.FileUploader = (*GeminiClient)(nil)
+
 // WithFileID attaches an already-uploaded Gemini file (by its file URI) to the
 // model input. It delegates to interfaces.WithFileID so the option surface is
 // identical across providers.

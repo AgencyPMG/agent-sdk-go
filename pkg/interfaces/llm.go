@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 )
@@ -54,6 +55,21 @@ type FileInput struct {
 	FileURL  string
 	FileData string
 	Filename string
+}
+
+// FileUploader is an optional capability implemented by LLM clients that support
+// uploading files for later use as model input (e.g. referenced via WithFileID).
+// Clients that implement it (currently OpenAI and Gemini) return a provider-scoped
+// file handle. Callers holding a generic LLM should type-assert to this interface
+// and surface a clear error when a provider does not implement it, rather than
+// assuming upload is available.
+type FileUploader interface {
+	// UploadUserData uploads file content and returns a provider-scoped file handle
+	// (an OpenAI file ID, a Gemini file URI, etc.) suitable for passing to WithFileID.
+	// The returned handle is only valid with the same provider that produced it.
+	UploadUserData(ctx context.Context, reader io.Reader, filename, contentType string) (string, error)
+	// UploadUserDataFile uploads a local file by path and returns its handle.
+	UploadUserDataFile(ctx context.Context, path string) (string, error)
 }
 
 // CacheConfig contains configuration for prompt caching (Anthropic only)
