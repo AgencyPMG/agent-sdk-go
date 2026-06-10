@@ -1,6 +1,10 @@
 package interfaces
 
-import "context"
+import (
+	"context"
+	"encoding/base64"
+	"fmt"
+)
 
 // LLM represents a large language model provider
 type LLM interface {
@@ -94,6 +98,42 @@ func WithDisableFinalSummary(disable bool) GenerateOption {
 func WithMemory(memory Memory) GenerateOption {
 	return func(options *GenerateOptions) {
 		options.Memory = memory
+	}
+}
+
+// WithFileID attaches an already-uploaded provider file to the model input by ID.
+func WithFileID(fileID string) GenerateOption {
+	return func(options *GenerateOptions) {
+		options.FileInputs = append(options.FileInputs, FileInput{FileID: fileID})
+	}
+}
+
+// WithFileURL attaches an externally reachable file URL to the model input.
+func WithFileURL(fileURL string) GenerateOption {
+	return func(options *GenerateOptions) {
+		options.FileInputs = append(options.FileInputs, FileInput{FileURL: fileURL})
+	}
+}
+
+// WithFileData attaches inline file bytes to the model input as a base64 data URL.
+func WithFileData(filename, mimeType string, data []byte) GenerateOption {
+	return func(options *GenerateOptions) {
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		options.FileInputs = append(options.FileInputs, FileInput{
+			Filename: filename,
+			FileData: fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(data)),
+		})
+	}
+}
+
+// WithCodeExecution enables the provider's hosted code-execution tool so the model
+// can run code (e.g. pandas over an uploaded CSV/XLSX) to answer the prompt. Files
+// attached via WithFileID are made available to the sandbox.
+func WithCodeExecution() GenerateOption {
+	return func(options *GenerateOptions) {
+		options.CodeExecution = true
 	}
 }
 
