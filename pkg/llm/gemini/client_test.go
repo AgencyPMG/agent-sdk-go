@@ -771,6 +771,38 @@ func TestGenerateWithToolsCodeExecutionRequestShape(t *testing.T) {
 	assert.True(t, sawFilePart, "expected the uploaded file attached as a fileData part")
 }
 
+// TestStreamingRejectsFileInputsAndCodeExecution verifies the streaming paths
+// fail fast rather than silently dropping file inputs / code execution.
+func TestStreamingRejectsFileInputsAndCodeExecution(t *testing.T) {
+	ctx := context.Background()
+	genaiClient, err := genai.NewClient(ctx, &genai.ClientConfig{
+		Backend: genai.BackendGeminiAPI,
+		APIKey:  "test-key",
+	})
+	require.NoError(t, err)
+	client := &GeminiClient{model: DefaultModel, genaiClient: genaiClient, logger: logging.New()}
+
+	cases := []struct {
+		name string
+		opt  interfaces.GenerateOption
+	}{
+		{"file input", interfaces.WithFileID("files/abc123")},
+		{"code execution", interfaces.WithCodeExecution()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name+"/GenerateStream", func(t *testing.T) {
+			_, err := client.GenerateStream(ctx, "hi", tc.opt)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "not supported with streaming")
+		})
+		t.Run(tc.name+"/GenerateWithToolsStream", func(t *testing.T) {
+			_, err := client.GenerateWithToolsStream(ctx, "hi", nil, tc.opt)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "not supported with streaming")
+		})
+	}
+}
+
 func TestGenerateWithHTTP(t *testing.T) {
 	// Create a test server that simulates Vertex AI responses
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

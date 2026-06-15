@@ -16,6 +16,16 @@ import (
 // GeminiClient implements the file-upload capability.
 var _ interfaces.FileUploader = (*GeminiClient)(nil)
 
+// errStreamingFileUnsupported reports that file inputs / code execution cannot be
+// used on the streaming paths. Streaming with the hosted code-execution tool is
+// not wired through this SDK; callers must use Generate or GenerateWithTools.
+func errStreamingFileUnsupported(params *interfaces.GenerateOptions) error {
+	if params != nil && (len(params.FileInputs) > 0 || params.CodeExecution) {
+		return fmt.Errorf("gemini file inputs and code execution are not supported with streaming; use Generate or GenerateWithTools")
+	}
+	return nil
+}
+
 // WithFileID attaches an already-uploaded Gemini file (by its file URI) to the
 // model input. It delegates to interfaces.WithFileID so the option surface is
 // identical across providers.

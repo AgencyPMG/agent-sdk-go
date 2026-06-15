@@ -334,3 +334,31 @@ func TestGenerateWithToolsPinsFileToOriginalPrompt(t *testing.T) {
 		t.Fatalf("container_upload leaked onto the tool-result message: %v", last)
 	}
 }
+
+// TestStreamingRejectsFileInputsAndCodeExecution verifies the streaming paths
+// fail fast rather than silently dropping file inputs / code execution.
+func TestStreamingRejectsFileInputsAndCodeExecution(t *testing.T) {
+	client := NewClient("test-key", WithModel(ClaudeOpus45))
+
+	cases := []struct {
+		name string
+		opt  interfaces.GenerateOption
+	}{
+		{"file input", WithFileID("file_abc123")},
+		{"code execution", WithCodeExecution()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name+"/GenerateStream", func(t *testing.T) {
+			_, err := client.GenerateStream(context.Background(), "hi", tc.opt)
+			if err == nil || !strings.Contains(err.Error(), "not supported with streaming") {
+				t.Fatalf("expected streaming-unsupported error, got %v", err)
+			}
+		})
+		t.Run(tc.name+"/GenerateWithToolsStream", func(t *testing.T) {
+			_, err := client.GenerateWithToolsStream(context.Background(), "hi", nil, tc.opt)
+			if err == nil || !strings.Contains(err.Error(), "not supported with streaming") {
+				t.Fatalf("expected streaming-unsupported error, got %v", err)
+			}
+		})
+	}
+}

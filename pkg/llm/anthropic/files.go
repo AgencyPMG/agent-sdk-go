@@ -34,6 +34,17 @@ const (
 // AnthropicClient implements the file-upload capability.
 var _ interfaces.FileUploader = (*AnthropicClient)(nil)
 
+// errStreamingFileUnsupported reports that file inputs / code execution cannot be
+// used on the streaming paths. The content-block / code-execution request shape
+// is not wired through the streaming SSE path; callers must use Generate or
+// GenerateWithTools.
+func errStreamingFileUnsupported(params *interfaces.GenerateOptions) error {
+	if params != nil && (len(params.FileInputs) > 0 || params.CodeExecution) {
+		return fmt.Errorf("anthropic file inputs and code execution are not supported with streaming; use Generate or GenerateWithTools")
+	}
+	return nil
+}
+
 // WithFileID attaches an already-uploaded Anthropic file (by its file_id) to the
 // model input. It delegates to interfaces.WithFileID so the option surface is
 // identical across providers.
