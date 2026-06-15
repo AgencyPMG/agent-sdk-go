@@ -207,3 +207,130 @@ func lastUserFileBlock(t *testing.T, body map[string]interface{}, idx int) map[s
 	block, _ := content[idx].(map[string]interface{})
 	return block
 }
+
+// fileTestTool is a minimal interfaces.Tool for exercising the tool-calling path.
+type fileTestTool struct{ name string }
+
+func (t *fileTestTool) Name() string                                             { return t.name }
+func (t *fileTestTool) Description() string                                      { return "test tool" }
+func (t *fileTestTool) Run(ctx context.Context, input string) (string, error)    { return "42", nil }
+func (t *fileTestTool) Execute(ctx context.Context, args string) (string, error) { return "42", nil }
+func (t *fileTestTool) Parameters() map[string]interfaces.ParameterSpec {
+	return map[string]interfaces.ParameterSpec{
+		"q": {Type: "string", Description: "query", Required: true},
+	}
+}
+
+// hasBlockType reports whether any content block of the message is of the given type.
+func hasBlockType(msg map[string]interface{}, blockType string) bool {
+	content, ok := msg["content"].([]interface{})
+	if !ok {
+		return false
+	}
+	for _, b := range content {
+		if block, ok := b.(map[string]interface{}); ok && block["type"] == blockType {
+			return true
+		}
+	}
+	return false
+}
+
+func TestGenerateWithToolsAttachesFileAndMergesTools(t *testing.T) {
+	cap := &captured{}
+	server := newMessagesServer(t, cap)
+	defer server.Close()
+
+	client := NewClient("test-key", WithModel(ClaudeOpus45), WithBaseURL(server.URL))
+
+	_, err := client.GenerateWithTools(context.Background(), "analyze the spreadsheet",
+		[]interfaces.Tool{&fileTestTool{name: "lookup"}},
+		WithFileID("file_abc123"),
+		WithCodeExecution(),
+	)
+	if err != nil {
+		t.Fatalf("GenerateWithTools failed: %v", err)
+	}
+
+	if !strings.Contains(cap.betaHeader, betaFilesAPI) || !strings.Contains(cap.betaHeader, betaCodeExecution) {
+		t.Fatalf("expected beta header to include files + code execution, got %q", cap.betaHeader)
+	}
+
+	block := lastUserFileBlock(t, cap.body, 1)
+	if block["type"] != "container_upload" || block["file_id"] != "file_abc123" {
+		t.Fatalf("expected container_upload block with file_abc123, got %v", block)
+	}
+
+	// The client function tool and the hosted code-execution tool must both survive.
+	tools, ok := cap.body["tools"].([]interface{})
+	if !ok || len(tools) != 2 {
+		t.Fatalf("expected client tool + code execution tool, got %v", cap.body["tools"])
+	}
+	var sawClientTool, sawCodeExec bool
+	for _, tv := range tools {
+		tool, _ := tv.(map[string]interface{})
+		if tool["name"] == "lookup" {
+			sawClientTool = true
+		}
+		if tool["type"] == codeExecutionToolType && tool["name"] == codeExecutionToolName {
+			sawCodeExec = true
+		}
+	}
+	if !sawClientTool || !sawCodeExec {
+		t.Fatalf("expected both client tool and code execution tool, got %v", tools)
+	}
+	if cap.body["tool_choice"] == nil {
+		t.Fatalf("expected tool_choice to be carried through, got nil")
+	}
+}
+
+func TestGenerateWithToolsPinsFileToOriginalPrompt(t *testing.T) {
+	var bodies []map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]interface{}
+		if err := json.Unmarshal(raw, &body); err != nil {
+			t.Fatalf("failed to decode request body: %v", err)
+		}
+		bodies = append(bodies, body)
+		w.Header().Set("Content-Type", "application/json")
+		if len(bodies) == 1 {
+			// First turn: ask to call the client tool, forcing a second iteration.
+			_, _ = w.Write([]byte(`{"content":[{"type":"tool_use","id":"t1","name":"lookup","input":{"q":"x"}}],"model":"claude-opus-4-8","stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1}}`))
+			return
+		}
+		_, _ = w.Write([]byte(messagesOKResponse))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithModel(ClaudeOpus45), WithBaseURL(server.URL))
+
+	_, err := client.GenerateWithTools(context.Background(), "analyze the spreadsheet",
+		[]interfaces.Tool{&fileTestTool{name: "lookup"}},
+		WithFileID("file_abc123"),
+		WithCodeExecution(),
+	)
+	if err != nil {
+		t.Fatalf("GenerateWithTools failed: %v", err)
+	}
+	if len(bodies) < 2 {
+		t.Fatalf("expected at least 2 iterations, got %d", len(bodies))
+	}
+
+	// On the second turn the message list has grown (a user tool-result message
+	// is appended). The container_upload must remain on the original prompt and
+	// must NOT have migrated onto the newly-appended tool-result message — which
+	// is what a naive "attach to the last user message" rule would have done.
+	second := bodies[1]
+	messages, _ := second["messages"].([]interface{})
+	if len(messages) < 2 {
+		t.Fatalf("expected original prompt + tool_result, got %d messages", len(messages))
+	}
+	first, _ := messages[0].(map[string]interface{})
+	if !hasBlockType(first, "container_upload") {
+		t.Fatalf("expected container_upload on the original prompt, got %v", first)
+	}
+	last, _ := messages[len(messages)-1].(map[string]interface{})
+	if hasBlockType(last, "container_upload") {
+		t.Fatalf("container_upload leaked onto the tool-result message: %v", last)
+	}
+}

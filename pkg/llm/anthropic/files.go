@@ -180,6 +180,7 @@ type fileCompletionRequest struct {
 	StopSequences []string        `json:"stop_sequences,omitempty"`
 	System        string          `json:"system,omitempty"`
 	Tools         json.RawMessage `json:"tools,omitempty"`
+	ToolChoice    interface{}     `json:"tool_choice,omitempty"`
 	Thinking      *ReasoningSpec  `json:"thinking,omitempty"`
 }
 
@@ -188,14 +189,20 @@ type fileCompletionRequest struct {
 type fileRequestBuilder struct {
 	files         []interfaces.FileInput
 	codeExecution bool
+	// promptIndex is the index in req.Messages of the user turn that the file
+	// blocks belong to. -1 means "attach to the last user message", which is
+	// correct for the single-turn Generate path. The tool-calling loop sets an
+	// explicit index so files stay on the original prompt rather than migrating
+	// onto tool-result messages appended in later iterations.
+	promptIndex int
 }
 
 // newFileRequestBuilder creates a builder from the generation options.
 func newFileRequestBuilder(params *interfaces.GenerateOptions) *fileRequestBuilder {
 	if params == nil {
-		return &fileRequestBuilder{}
+		return &fileRequestBuilder{promptIndex: -1}
 	}
-	return &fileRequestBuilder{files: params.FileInputs, codeExecution: params.CodeExecution}
+	return &fileRequestBuilder{files: params.FileInputs, codeExecution: params.CodeExecution, promptIndex: -1}
 }
 
 // active reports whether any file-input / code-execution handling is required.
@@ -250,7 +257,7 @@ func (b *fileRequestBuilder) build(req *CompletionRequest) ([]byte, error) {
 		return nil, err
 	}
 
-	messages, err := buildFileMessages(req.Messages, fileBlocks)
+	messages, err := buildFileMessages(req.Messages, fileBlocks, b.promptIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -263,16 +270,26 @@ func (b *fileRequestBuilder) build(req *CompletionRequest) ([]byte, error) {
 		TopP:          req.TopP,
 		StopSequences: req.StopSequences,
 		System:        req.System,
+		ToolChoice:    req.ToolChoice,
 		Thinking:      req.Thinking,
 	}
 
-	if b.codeExecution {
-		tools, err := json.Marshal([]map[string]string{{
-			"type": codeExecutionToolType,
-			"name": codeExecutionToolName,
-		}})
+	// Merge any client-supplied function tools with the hosted code-execution
+	// tool so the tool-calling loop keeps its tools when a file is attached.
+	if len(req.Tools) > 0 || b.codeExecution {
+		toolList := make([]interface{}, 0, len(req.Tools)+1)
+		for _, t := range req.Tools {
+			toolList = append(toolList, t)
+		}
+		if b.codeExecution {
+			toolList = append(toolList, map[string]string{
+				"type": codeExecutionToolType,
+				"name": codeExecutionToolName,
+			})
+		}
+		tools, err := json.Marshal(toolList)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal code execution tool: %w", err)
+			return nil, fmt.Errorf("failed to marshal tools: %w", err)
 		}
 		out.Tools = tools
 	}
@@ -324,17 +341,25 @@ func (b *fileRequestBuilder) fileBlocks() ([]fileContentBlock, error) {
 
 // buildFileMessages serializes the message list, attaching the file content blocks
 // to the last user message. If there is no user message, a new one is appended.
-func buildFileMessages(messages []Message, fileBlocks []fileContentBlock) (json.RawMessage, error) {
-	lastUser := -1
-	for i := range messages {
-		if messages[i].Role == "user" {
-			lastUser = i
+// buildFileMessages attaches fileBlocks to the user message at targetIdx. When
+// targetIdx is < 0 the file blocks are attached to the last user message, which
+// is the right behavior for a single-turn request. The tool-calling loop passes
+// an explicit index so the blocks stay on the original prompt instead of landing
+// on a tool-result message appended in a later iteration.
+func buildFileMessages(messages []Message, fileBlocks []fileContentBlock, targetIdx int) (json.RawMessage, error) {
+	target := targetIdx
+	if target < 0 || target >= len(messages) || messages[target].Role != "user" {
+		target = -1
+		for i := range messages {
+			if messages[i].Role == "user" {
+				target = i
+			}
 		}
 	}
 
 	result := make([]interface{}, 0, len(messages)+1)
 	for i := range messages {
-		if i == lastUser {
+		if i == target {
 			content := []fileContentBlock{{Type: "text", Text: messages[i].Content}}
 			content = append(content, fileBlocks...)
 			result = append(result, fileMessage{Role: "user", Content: content})
@@ -343,7 +368,7 @@ func buildFileMessages(messages []Message, fileBlocks []fileContentBlock) (json.
 		result = append(result, messages[i])
 	}
 
-	if lastUser == -1 {
+	if target == -1 {
 		result = append(result, fileMessage{Role: "user", Content: fileBlocks})
 	}
 
