@@ -581,6 +581,22 @@ Return only the JSON object, with no additional text or markdown formatting.`, p
 		req.System = params.SystemMessage
 	}
 
+	// File inputs / code execution route through a separate content-block request
+	// and require beta headers. They are only available on the standard Anthropic
+	// API (not Vertex/Bedrock) and are not combinable with prompt caching here.
+	fileBuilder := newFileRequestBuilder(params)
+	if fileBuilder.active() {
+		if c.VertexConfig != nil && c.VertexConfig.Enabled {
+			return nil, fmt.Errorf("anthropic file inputs and code execution are not supported on Vertex AI")
+		}
+		if c.BedrockConfig != nil && c.BedrockConfig.Enabled {
+			return nil, fmt.Errorf("anthropic file inputs and code execution are not supported on Bedrock")
+		}
+		if newCacheRequestBuilder(params.CacheConfig).HasCacheOptions() {
+			return nil, fmt.Errorf("anthropic prompt caching cannot be combined with file inputs or code execution in this SDK path")
+		}
+	}
+
 	var resp CompletionResponse
 	var err error
 
@@ -613,10 +629,18 @@ Return only the JSON object, with no additional text or markdown formatting.`, p
 			}
 		} else {
 			// Standard Anthropic API mode
-			// Convert request to JSON, using cache builder if caching is enabled
+			// Convert request to JSON. File/code-execution requests use a
+			// content-block builder; otherwise use the cache builder if caching
+			// is enabled, falling back to the plain request.
 			var reqBody []byte
 			cacheBuilder := newCacheRequestBuilder(params.CacheConfig)
-			if cacheBuilder.HasCacheOptions() {
+			switch {
+			case fileBuilder.active():
+				reqBody, err = fileBuilder.build(&req)
+				if err != nil {
+					return fmt.Errorf("failed to build file request: %w", err)
+				}
+			case cacheBuilder.HasCacheOptions():
 				cacheableReq, err := cacheBuilder.BuildCacheableRequest(&req)
 				if err != nil {
 					return fmt.Errorf("failed to build cacheable request: %w", err)
@@ -625,8 +649,7 @@ Return only the JSON object, with no additional text or markdown formatting.`, p
 				if err != nil {
 					return fmt.Errorf("failed to marshal cacheable request: %w", err)
 				}
-			} else {
-				var err error
+			default:
 				reqBody, err = json.Marshal(req)
 				if err != nil {
 					return fmt.Errorf("failed to marshal request: %w", err)
@@ -647,6 +670,9 @@ Return only the JSON object, with no additional text or markdown formatting.`, p
 			httpReq.Header.Set("Content-Type", "application/json")
 			httpReq.Header.Set("X-API-Key", c.APIKey)
 			httpReq.Header.Set("anthropic-version", "2023-06-01")
+			if betaHeader := fileBuilder.betaHeader(); betaHeader != "" {
+				httpReq.Header.Set("anthropic-beta", betaHeader)
+			}
 		}
 
 		// Perform the request
