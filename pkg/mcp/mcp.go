@@ -915,6 +915,19 @@ type HTTPServerConfig struct {
 	Logger       logging.Logger
 
 	ResourceIndicator string `json:"resource_indicator,omitempty"`
+
+	// HTTPClient overrides the transport client; takes precedence over Token. nil = Token bearer or http.DefaultClient.
+	HTTPClient *http.Client
+
+	// DisableStandaloneSSE skips the optional server-push SSE GET stream (StreamableHTTP only).
+	DisableStandaloneSSE bool
+
+	// MaxRetries overrides the StreamableHTTP reconnect budget; nil = go-sdk default (5), negative = none.
+	MaxRetries *int
+
+	// ClientName and ClientVersion set the MCP client identity sent at initialize; empty = SDK defaults.
+	ClientName    string
+	ClientVersion string
 }
 
 // ServerProtocolType defines the protocol type for the MCP server communication
@@ -953,6 +966,37 @@ func NewHTTPServer(ctx context.Context, config HTTPServerConfig) (interfaces.MCP
 	return NewHTTPServerWithRetry(ctx, config, nil)
 }
 
+// newHTTPTransport builds the go-sdk transport from config; pure, no I/O, so field mapping is testable.
+func newHTTPTransport(ctx context.Context, config HTTPServerConfig, logger logging.Logger) mcp.Transport {
+	// Caller-supplied client wins; else Token bearer; else default.
+	httpClient := http.DefaultClient
+	switch {
+	case config.HTTPClient != nil:
+		httpClient = config.HTTPClient
+	case config.Token != "":
+		httpClient = customHTTPClient(config.Token)
+	}
+
+	switch config.ProtocolType {
+	case StreamableHTTP:
+		st := &mcp.StreamableClientTransport{
+			Endpoint:             config.BaseURL,
+			HTTPClient:           httpClient,
+			DisableStandaloneSSE: config.DisableStandaloneSSE,
+		}
+		if config.MaxRetries != nil {
+			st.MaxRetries = *config.MaxRetries
+		}
+		return st
+	case SSE:
+		// Legacy but still supported by some servers.
+		return &mcp.SSEClientTransport{Endpoint: config.BaseURL, HTTPClient: httpClient}
+	default:
+		logger.Warn(ctx, "Server protocol type is not set, defaulting to SSE", map[string]interface{}{})
+		return &mcp.SSEClientTransport{Endpoint: config.BaseURL, HTTPClient: httpClient}
+	}
+}
+
 // NewHTTPServerWithRetry creates a new HTTP MCPServer with retry logic
 func NewHTTPServerWithRetry(ctx context.Context, config HTTPServerConfig, retryConfig *RetryConfig) (interfaces.MCPServer, error) {
 	// Create logger if not configured
@@ -961,46 +1005,23 @@ func NewHTTPServerWithRetry(ctx context.Context, config HTTPServerConfig, retryC
 		logger = logging.New()
 	}
 
-	// Create a new client with basic implementation info
+	// Create a new client with basic implementation info; caller may override identity.
+	clientName, clientVersion := "agent-sdk-go", "0.0.0"
+	if config.ClientName != "" {
+		clientName = config.ClientName
+	}
+	if config.ClientVersion != "" {
+		clientVersion = config.ClientVersion
+	}
 	client := mcp.NewClient(&mcp.Implementation{
-		Name:    "agent-sdk-go",
-		Version: "0.0.0",
+		Name:    clientName,
+		Version: clientVersion,
 	}, nil)
 
 	// Add tracing middleware to the client
 	client.AddSendingMiddleware(tracingMiddleware)
 
-	httpClient := http.DefaultClient
-
-	// Handle token-based authentication
-	if config.Token != "" {
-		// Fallback to legacy token-based authentication
-		httpClient = customHTTPClient(config.Token)
-	}
-
-	var transport mcp.Transport
-	switch config.ProtocolType {
-	case SSE:
-		// Create SSE client transport for HTTP communication
-		// It is legacy but still supported by some MCP servers
-		transport = &mcp.SSEClientTransport{
-			Endpoint:   config.BaseURL,
-			HTTPClient: httpClient,
-		}
-	case StreamableHTTP:
-		// Create StreamableHTTP client transport for HTTP communication
-		transport = &mcp.StreamableClientTransport{
-			Endpoint:   config.BaseURL,
-			HTTPClient: httpClient,
-		}
-	default:
-		// Default to SSE if type is not recognized
-		logger.Warn(ctx, "Server protocol type is not set, defaulting to SSE", map[string]interface{}{})
-		transport = &mcp.SSEClientTransport{
-			Endpoint:   config.BaseURL,
-			HTTPClient: httpClient,
-		}
-	}
+	transport := newHTTPTransport(ctx, config, logger)
 
 	// Connect to the server using the transport
 	session, err := client.Connect(ctx, transport, nil)
