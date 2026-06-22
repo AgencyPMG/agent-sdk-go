@@ -16,7 +16,7 @@ import (
 )
 
 func (c *OpenAIClient) shouldUseResponsesAPI(params *interfaces.GenerateOptions, _ []interfaces.Tool) bool {
-	if params != nil && (len(params.FileInputs) > 0 || params.CodeExecution) {
+	if params != nil && (len(params.FileInputs) > 0 || params.EnableCodeExecution) {
 		return true
 	}
 	return c.useResponsesAPI
@@ -75,7 +75,7 @@ func validateResponsesAPIOptions(params *interfaces.GenerateOptions) error {
 		}
 	}
 
-	if params.CodeExecution {
+	if params.EnableCodeExecution {
 		for i, file := range params.FileInputs {
 			if file.FileID == "" {
 				return fmt.Errorf("openai code execution file input %d must be an uploaded FileID; URL and inline data are not supported by the code interpreter container", i)
@@ -107,7 +107,7 @@ func (c *OpenAIClient) generateWithResponsesAPI(ctx context.Context, prompt stri
 		req.ToolChoice = responses.ResponseNewParamsToolChoiceUnion{OfToolChoiceMode: param.NewOpt(responses.ToolChoiceOptionsAuto)}
 		req.ParallelToolCalls = param.NewOpt(true)
 	}
-	if params.CodeExecution {
+	if params.EnableCodeExecution {
 		req.Tools = append(req.Tools, buildCodeExecutionTool(codeExecFileIDs(params)))
 	}
 
@@ -173,7 +173,7 @@ func (c *OpenAIClient) newResponseRequest(prompt string, params *interfaces.Gene
 	// When code execution is enabled, files are mounted into the sandbox container
 	// (see buildCodeExecutionTool), so the user turn carries only the prompt text.
 	// Otherwise files are attached as readable input_file content.
-	if params.CodeExecution {
+	if params.EnableCodeExecution {
 		input = append(input, responses.ResponseInputItemUnionParam{OfMessage: responseMessage("user", prompt)})
 	} else {
 		input = append(input, responses.ResponseInputItemUnionParam{OfMessage: responseUserMessage(prompt, params.FileInputs)})

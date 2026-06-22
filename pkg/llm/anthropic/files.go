@@ -39,7 +39,7 @@ var _ interfaces.FileUploader = (*AnthropicClient)(nil)
 // is not wired through the streaming SSE path; callers must use Generate or
 // GenerateWithTools.
 func errStreamingFileUnsupported(params *interfaces.GenerateOptions) error {
-	if params != nil && (len(params.FileInputs) > 0 || params.CodeExecution) {
+	if params != nil && (len(params.FileInputs) > 0 || params.EnableCodeExecution) {
 		return fmt.Errorf("anthropic file inputs and code execution are not supported with streaming; use Generate or GenerateWithTools")
 	}
 	return nil
@@ -213,7 +213,7 @@ func newFileRequestBuilder(params *interfaces.GenerateOptions) *fileRequestBuild
 	if params == nil {
 		return &fileRequestBuilder{promptIndex: -1}
 	}
-	return &fileRequestBuilder{files: params.FileInputs, codeExecution: params.CodeExecution, promptIndex: -1}
+	return &fileRequestBuilder{files: params.FileInputs, codeExecution: params.EnableCodeExecution, promptIndex: -1}
 }
 
 // active reports whether any file-input / code-execution handling is required.

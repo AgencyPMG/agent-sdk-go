@@ -45,7 +45,7 @@ type GenerateOptions struct {
 	StreamConfig        *StreamConfig   // Optional streaming configuration
 	CacheConfig         *CacheConfig    // Optional prompt caching configuration (Anthropic only)
 	FileInputs          []FileInput     // Optional file inputs for providers that support them
-	EnableCodeExecution       bool            // When true, enable the provider's hosted code-execution tool (e.g. OpenAI code interpreter) to run code over the file inputs
+	EnableCodeExecution bool // When true, enable the provider's hosted code-execution tool (e.g. OpenAI code interpreter) to run code over the file inputs
 }
 
 // FileInput describes a file passed directly to the model input.
@@ -151,7 +151,7 @@ func WithFileData(filename, mimeType string, data []byte) GenerateOption {
 // attached via WithFileID are made available to the sandbox.
 func WithCodeExecution() GenerateOption {
 	return func(options *GenerateOptions) {
-		options.CodeExecution = true
+		options.EnableCodeExecution = true
 	}
 }
 

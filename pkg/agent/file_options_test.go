@@ -62,7 +62,7 @@ func TestWithGenerateOptionsThreadsThroughToLLM(t *testing.T) {
 	}
 
 	got := llm.resolved()
-	if !got.CodeExecution {
+	if !got.EnableCodeExecution {
 		t.Fatalf("expected CodeExecution to be threaded through to the LLM")
 	}
 	if len(got.FileInputs) != 1 || got.FileInputs[0].FileID != "file_123" {

@@ -20,7 +20,7 @@ var _ interfaces.FileUploader = (*GeminiClient)(nil)
 // used on the streaming paths. Streaming with the hosted code-execution tool is
 // not wired through this SDK; callers must use Generate or GenerateWithTools.
 func errStreamingFileUnsupported(params *interfaces.GenerateOptions) error {
-	if params != nil && (len(params.FileInputs) > 0 || params.CodeExecution) {
+	if params != nil && (len(params.FileInputs) > 0 || params.EnableCodeExecution) {
 		return fmt.Errorf("gemini file inputs and code execution are not supported with streaming; use Generate or GenerateWithTools")
 	}
 	return nil

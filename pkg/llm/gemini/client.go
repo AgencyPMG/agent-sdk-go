@@ -402,7 +402,7 @@ func (c *GeminiClient) generateInternal(ctx context.Context, prompt string, opti
 
 		// Enable the hosted code-execution tool when requested, so the model can run
 		// code (e.g. pandas over an uploaded CSV/XLSX) to answer the prompt.
-		if params.CodeExecution {
+		if params.EnableCodeExecution {
 			config.Tools = append(config.Tools, &genai.Tool{CodeExecution: &genai.ToolCodeExecution{}})
 		}
 
@@ -699,7 +699,7 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 
 		// Enable the hosted code-execution tool when requested, so the model can run
 		// code (e.g. pandas over an uploaded CSV/XLSX) to answer the prompt.
-		if params.CodeExecution {
+		if params.EnableCodeExecution {
 			config.Tools = append(config.Tools, &genai.Tool{CodeExecution: &genai.ToolCodeExecution{}})
 		}
 
