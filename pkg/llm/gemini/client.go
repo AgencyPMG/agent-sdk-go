@@ -305,6 +305,14 @@ func (c *GeminiClient) generateInternal(ctx context.Context, prompt string, opti
 	// Build contents with memory and current prompt
 	contents := c.buildContentsWithMemory(ctx, prompt, params)
 
+	// Attach any file inputs to the current (last) user turn.
+	if fileParts, ferr := buildGeminiFileParts(params); ferr != nil {
+		return nil, ferr
+	} else if len(fileParts) > 0 && len(contents) > 0 {
+		last := contents[len(contents)-1]
+		last.Parts = append(last.Parts, fileParts...)
+	}
+
 	// Add system instruction if provided or if reasoning is specified
 	var systemInstruction *genai.Content
 	systemMessage := params.SystemMessage
@@ -390,6 +398,12 @@ func (c *GeminiClient) generateInternal(ctx context.Context, prompt string, opti
 
 		config := &genai.GenerateContentConfig{
 			SystemInstruction: systemInstruction,
+		}
+
+		// Enable the hosted code-execution tool when requested, so the model can run
+		// code (e.g. pandas over an uploaded CSV/XLSX) to answer the prompt.
+		if params.EnableCodeExecution {
+			config.Tools = append(config.Tools, &genai.Tool{CodeExecution: &genai.ToolCodeExecution{}})
 		}
 
 		// Apply generation config parameters directly to config
@@ -562,6 +576,16 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 
 	// Build contents with memory and current prompt
 	contents := c.buildContentsWithMemory(ctx, prompt, params)
+
+	// Attach any file inputs to the current (last) user turn, mirroring Generate
+	// so the file/code-execution surface behaves identically on the tool path.
+	if fileParts, ferr := buildGeminiFileParts(params); ferr != nil {
+		return "", ferr
+	} else if len(fileParts) > 0 && len(contents) > 0 {
+		last := contents[len(contents)-1]
+		last.Parts = append(last.Parts, fileParts...)
+	}
+
 	var systemInstruction *genai.Content
 
 	// Track tool call repetitions for loop detection
@@ -671,6 +695,12 @@ func (c *GeminiClient) GenerateWithTools(ctx context.Context, prompt string, too
 				},
 			},
 			SystemInstruction: systemInstruction,
+		}
+
+		// Enable the hosted code-execution tool when requested, so the model can run
+		// code (e.g. pandas over an uploaded CSV/XLSX) to answer the prompt.
+		if params.EnableCodeExecution {
+			config.Tools = append(config.Tools, &genai.Tool{CodeExecution: &genai.ToolCodeExecution{}})
 		}
 
 		// Apply generation config parameters directly to config

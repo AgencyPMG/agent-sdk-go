@@ -2,7 +2,6 @@ package openai
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -1122,35 +1121,28 @@ func WithReasoning(reasoning string) interfaces.GenerateOption {
 }
 
 // WithFileID attaches an already-uploaded OpenAI file to the model input.
+// It delegates to interfaces.WithFileID so the option surface is identical across providers.
 func WithFileID(fileID string) interfaces.GenerateOption {
-	return func(options *interfaces.GenerateOptions) {
-		options.FileInputs = append(options.FileInputs, interfaces.FileInput{FileID: fileID})
-	}
+	return interfaces.WithFileID(fileID)
 }
 
 // WithFileURL attaches an externally reachable file URL to the model input.
 // OpenAI supports file URLs through the Responses API.
 func WithFileURL(fileURL string) interfaces.GenerateOption {
-	return func(options *interfaces.GenerateOptions) {
-		options.FileInputs = append(options.FileInputs, interfaces.FileInput{FileURL: fileURL})
-	}
+	return interfaces.WithFileURL(fileURL)
 }
 
 // WithFileData attaches inline file bytes to the model input as a data URL.
 func WithFileData(filename, mimeType string, data []byte) interfaces.GenerateOption {
-	return func(options *interfaces.GenerateOptions) {
-		if mimeType == "" {
-			mimeType = "application/octet-stream"
-		}
-		options.FileInputs = append(options.FileInputs, interfaces.FileInput{
-			Filename: filename,
-			FileData: fmt.Sprintf(
-				"data:%s;base64,%s",
-				mimeType,
-				base64.StdEncoding.EncodeToString(data),
-			),
-		})
-	}
+	return interfaces.WithFileData(filename, mimeType, data)
+}
+
+// WithCodeExecution enables OpenAI's hosted code interpreter so the model can run
+// code (e.g. pandas over an uploaded CSV/XLSX) to answer the prompt. Files attached
+// via WithFileID are mounted into the sandbox container. This routes the request
+// through the Responses API.
+func WithCodeExecution() interfaces.GenerateOption {
+	return interfaces.WithCodeExecution()
 }
 
 // GenerateDetailed generates text and returns detailed response information including token usage

@@ -23,6 +23,10 @@ func (c *GeminiClient) GenerateStream(ctx context.Context, prompt string, option
 		}
 	}
 
+	if err := errStreamingFileUnsupported(params); err != nil {
+		return nil, err
+	}
+
 	// Get streaming config or use default
 	streamConfig := interfaces.DefaultStreamConfig()
 	if params.StreamConfig != nil {
@@ -270,6 +274,10 @@ func (c *GeminiClient) GenerateWithToolsStream(ctx context.Context, prompt strin
 		if opt != nil {
 			opt(params)
 		}
+	}
+
+	if err := errStreamingFileUnsupported(params); err != nil {
+		return nil, err
 	}
 
 	// Set default values only if they're not provided

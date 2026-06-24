@@ -7,8 +7,12 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	openaiapi "github.com/openai/openai-go/v2"
 )
+
+// OpenAIClient implements the file-upload capability.
+var _ interfaces.FileUploader = (*OpenAIClient)(nil)
 
 // UploadUserDataFile uploads a local file for later use as a model input and
 // returns the OpenAI file ID.
@@ -19,7 +23,8 @@ func (c *OpenAIClient) UploadUserDataFile(ctx context.Context, path string) (str
 	}
 	defer file.Close()
 
-	return c.UploadUserData(ctx, file, filepath.Base(path), "")
+	name := filepath.Base(path)
+	return c.UploadUserData(ctx, file, name, interfaces.ContentTypeForFilename(name))
 }
 
 // UploadUserData uploads file content for later use as a model input and returns

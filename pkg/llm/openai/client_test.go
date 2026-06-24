@@ -838,6 +838,81 @@ func TestResponsesAPIValidationErrors(t *testing.T) {
 	}
 }
 
+func TestCodeExecutionUsesResponsesAPIWithUploadedFile(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			t.Fatalf("expected /responses endpoint, got %s", r.URL.Path)
+		}
+
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("Failed to decode request body: %v", err)
+		}
+
+		// Code execution mounts files in the container, so the user turn is plain text.
+		input := reqBody["input"].([]interface{})
+		message := input[0].(map[string]interface{})
+		if _, ok := message["content"].(string); !ok {
+			t.Fatalf("expected plain string user content for code execution, got %v", message["content"])
+		}
+
+		// A code_interpreter tool with the uploaded file mounted in its container.
+		tools := reqBody["tools"].([]interface{})
+		if len(tools) != 1 {
+			t.Fatalf("expected exactly one tool, got %v", tools)
+		}
+		tool := tools[0].(map[string]interface{})
+		if tool["type"] != "code_interpreter" {
+			t.Fatalf("expected code_interpreter tool, got %v", tool["type"])
+		}
+		container := tool["container"].(map[string]interface{})
+		fileIDs := container["file_ids"].([]interface{})
+		if len(fileIDs) != 1 || fileIDs[0] != "file_123" {
+			t.Fatalf("expected file_123 mounted in container, got %v", fileIDs)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"resp_1",
+			"object":"response",
+			"created_at":0,
+			"model":"gpt-4o-mini",
+			"status":"completed",
+			"output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Top 3 trends: ...","annotations":[]}]}],
+			"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}
+		}`))
+	}))
+	defer server.Close()
+
+	client := openai_client.NewClient("test-key",
+		openai_client.WithBaseURL(server.URL),
+		openai_client.WithModel("gpt-4o-mini"),
+		openai_client.WithLogger(logging.New()),
+	)
+
+	resp, err := client.Generate(context.Background(), "Top 3 trends in this spreadsheet?",
+		openai_client.WithFileID("file_123"),
+		openai_client.WithCodeExecution(),
+	)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	if resp != "Top 3 trends: ..." {
+		t.Fatalf("expected code execution response, got %s", resp)
+	}
+}
+
+func TestCodeExecutionRequiresUploadedFileID(t *testing.T) {
+	client := openai_client.NewClient("test-key", openai_client.WithModel("gpt-4o-mini"))
+	_, err := client.Generate(context.Background(), "analyze this",
+		openai_client.WithFileURL("https://example.com/data.csv"),
+		openai_client.WithCodeExecution(),
+	)
+	if err == nil || !strings.Contains(err.Error(), "must be an uploaded FileID") {
+		t.Fatalf("expected uploaded-FileID error, got %v", err)
+	}
+}
+
 func TestStreamingValidationErrors(t *testing.T) {
 	t.Run("responses api streaming is explicit error", func(t *testing.T) {
 		client := openai_client.NewClient("test-key", openai_client.WithResponsesAPI(true))

@@ -1,6 +1,13 @@
 package interfaces
 
-import "context"
+import (
+	"context"
+	"encoding/base64"
+	"fmt"
+	"io"
+	"path/filepath"
+	"strings"
+)
 
 // LLM represents a large language model provider
 type LLM interface {
@@ -38,6 +45,7 @@ type GenerateOptions struct {
 	StreamConfig        *StreamConfig   // Optional streaming configuration
 	CacheConfig         *CacheConfig    // Optional prompt caching configuration (Anthropic only)
 	FileInputs          []FileInput     // Optional file inputs for providers that support them
+	EnableCodeExecution bool // When true, enable the provider's hosted code-execution tool (e.g. OpenAI code interpreter) to run code over the file inputs
 }
 
 // FileInput describes a file passed directly to the model input.
@@ -47,6 +55,21 @@ type FileInput struct {
 	FileURL  string
 	FileData string
 	Filename string
+}
+
+// FileUploader is an optional capability implemented by LLM clients that support
+// uploading files for later use as model input (e.g. referenced via WithFileID).
+// Clients that implement it (currently OpenAI and Gemini) return a provider-scoped
+// file handle. Callers holding a generic LLM should type-assert to this interface
+// and surface a clear error when a provider does not implement it, rather than
+// assuming upload is available.
+type FileUploader interface {
+	// UploadUserData uploads file content and returns a provider-scoped file handle
+	// (an OpenAI file ID, a Gemini file URI, etc.) suitable for passing to WithFileID.
+	// The returned handle is only valid with the same provider that produced it.
+	UploadUserData(ctx context.Context, reader io.Reader, filename, contentType string) (string, error)
+	// UploadUserDataFile uploads a local file by path and returns its handle.
+	UploadUserDataFile(ctx context.Context, path string) (string, error)
 }
 
 // CacheConfig contains configuration for prompt caching (Anthropic only)
@@ -93,6 +116,58 @@ func WithDisableFinalSummary(disable bool) GenerateOption {
 func WithMemory(memory Memory) GenerateOption {
 	return func(options *GenerateOptions) {
 		options.Memory = memory
+	}
+}
+
+// WithFileID attaches an already-uploaded provider file to the model input by ID.
+func WithFileID(fileID string) GenerateOption {
+	return func(options *GenerateOptions) {
+		options.FileInputs = append(options.FileInputs, FileInput{FileID: fileID})
+	}
+}
+
+// WithFileURL attaches an externally reachable file URL to the model input.
+func WithFileURL(fileURL string) GenerateOption {
+	return func(options *GenerateOptions) {
+		options.FileInputs = append(options.FileInputs, FileInput{FileURL: fileURL})
+	}
+}
+
+// WithFileData attaches inline file bytes to the model input as a base64 data URL.
+func WithFileData(filename, mimeType string, data []byte) GenerateOption {
+	return func(options *GenerateOptions) {
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		options.FileInputs = append(options.FileInputs, FileInput{
+			Filename: filename,
+			FileData: fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(data)),
+		})
+	}
+}
+
+// WithCodeExecution enables the provider's hosted code-execution tool so the model
+// can run code (e.g. pandas over an uploaded CSV/XLSX) to answer the prompt. Files
+// attached via WithFileID are made available to the sandbox.
+func WithCodeExecution() GenerateOption {
+	return func(options *GenerateOptions) {
+		options.EnableCodeExecution = true
+	}
+}
+
+// ContentTypeForFilename infers a MIME type from a filename extension for the data
+// file types commonly analyzed via code execution. Returns an empty string for
+// unknown extensions, letting the provider infer the type.
+func ContentTypeForFilename(name string) string {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".csv":
+		return "text/csv"
+	case ".xlsx":
+		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	case ".xls":
+		return "application/vnd.ms-excel"
+	default:
+		return ""
 	}
 }
 

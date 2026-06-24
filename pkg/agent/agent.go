@@ -80,12 +80,13 @@ type Agent struct {
 	generatedTaskConfigs TaskConfigs
 	responseFormat       *interfaces.ResponseFormat // Response format for the agent
 	llmConfig            *interfaces.LLMConfig
-	mcpServers           []interfaces.MCPServer   // MCP servers for the agent
-	lazyMCPConfigs       []LazyMCPConfig          // Lazy MCP server configurations
-	maxIterations        int                      // Maximum number of tool-calling iterations (default: 2)
-	disableFinalSummary  bool                     // When true, skip the final summary LLM call
-	streamConfig         *interfaces.StreamConfig // Streaming configuration for the agent
-	cacheConfig          *interfaces.CacheConfig  // Prompt caching configuration (Anthropic only)
+	mcpServers           []interfaces.MCPServer      // MCP servers for the agent
+	lazyMCPConfigs       []LazyMCPConfig             // Lazy MCP server configurations
+	maxIterations        int                         // Maximum number of tool-calling iterations (default: 2)
+	disableFinalSummary  bool                        // When true, skip the final summary LLM call
+	streamConfig         *interfaces.StreamConfig    // Streaming configuration for the agent
+	cacheConfig          *interfaces.CacheConfig     // Prompt caching configuration (Anthropic only)
+	generateOptions      []interfaces.GenerateOption // Extra per-run generate options applied to every LLM call (e.g. file inputs, code execution)
 
 	// Runtime configuration fields
 	memoryConfig   map[string]interface{} // Memory configuration from YAML
@@ -566,6 +567,17 @@ func WithMaxIterations(maxIterations int) Option {
 func WithDisableFinalSummary(disable bool) Option {
 	return func(a *Agent) {
 		a.disableFinalSummary = disable
+	}
+}
+
+// WithGenerateOptions sets extra generate options that are applied to every LLM
+// call the agent makes (non-streaming and streaming). Use it to thread
+// provider-agnostic options such as interfaces.WithFileID and
+// interfaces.WithCodeExecution through the agent to the underlying LLM. Options
+// are appended after the agent's own options, so they take precedence.
+func WithGenerateOptions(options ...interfaces.GenerateOption) Option {
+	return func(a *Agent) {
+		a.generateOptions = append(a.generateOptions, options...)
 	}
 }
 
@@ -1273,6 +1285,10 @@ func (a *Agent) runWithoutExecutionPlanWithToolsTracked(ctx context.Context, inp
 			options.CacheConfig = a.cacheConfig
 		})
 	}
+
+	// Apply any caller-supplied generate options last so they take precedence
+	// (e.g. file inputs, code execution).
+	generateOptions = append(generateOptions, a.generateOptions...)
 
 	tracker := getUsageTracker(ctx)
 

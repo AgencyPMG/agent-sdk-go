@@ -332,6 +332,10 @@ func (a *Agent) runStreamingGeneration(
 		})
 	}
 
+	// Apply any caller-supplied generate options last so they take precedence
+	// (e.g. file inputs, code execution).
+	options = append(options, a.generateOptions...)
+
 	// Inject stream forwarder into context so sub-agents can forward their events
 	// This allows nested sub-agent streaming to work properly
 	streamForwarder := func(event interfaces.AgentStreamEvent) {
