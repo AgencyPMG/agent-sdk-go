@@ -45,7 +45,7 @@ type GenerateOptions struct {
 	StreamConfig        *StreamConfig   // Optional streaming configuration
 	CacheConfig         *CacheConfig    // Optional prompt caching configuration (Anthropic only)
 	FileInputs          []FileInput     // Optional file inputs for providers that support them
-	EnableCodeExecution bool // When true, enable the provider's hosted code-execution tool (e.g. OpenAI code interpreter) to run code over the file inputs
+	EnableCodeExecution bool            // When true, enable the provider's hosted code-execution tool (e.g. OpenAI code interpreter) to run code over the file inputs
 }
 
 // FileInput describes a file passed directly to the model input.
@@ -96,6 +96,11 @@ type LLMConfig struct {
 	Reasoning        string   // Reasoning mode (minimal, low, medium, high) to control reasoning effort
 	EnableReasoning  bool     // Enable native reasoning tokens (Anthropic thinking/OpenAI o1)
 	ReasoningBudget  int      // Optional token budget for reasoning (Anthropic only), minimum 1024
+	// ParallelToolCalls, when non-nil, sets the OpenAI parallel_tool_calls flag on
+	// tool-enabled requests. Nil leaves the provider default in place. Set to false
+	// to force at most one tool call per turn so the model observes each result
+	// before the next call (ordered, result-driven tool use).
+	ParallelToolCalls *bool
 }
 
 // WithMaxIterations creates a GenerateOption to set the maximum number of tool-calling iterations

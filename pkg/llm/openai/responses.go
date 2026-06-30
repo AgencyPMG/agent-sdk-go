@@ -105,7 +105,11 @@ func (c *OpenAIClient) generateWithResponsesAPI(ctx context.Context, prompt stri
 	if len(tools) > 0 {
 		req.Tools = buildResponseTools(tools)
 		req.ToolChoice = responses.ResponseNewParamsToolChoiceUnion{OfToolChoiceMode: param.NewOpt(responses.ToolChoiceOptionsAuto)}
-		req.ParallelToolCalls = param.NewOpt(true)
+		parallelToolCalls := true
+		if params.LLMConfig != nil && params.LLMConfig.ParallelToolCalls != nil {
+			parallelToolCalls = *params.LLMConfig.ParallelToolCalls
+		}
+		req.ParallelToolCalls = param.NewOpt(parallelToolCalls)
 	}
 	if params.EnableCodeExecution {
 		req.Tools = append(req.Tools, buildCodeExecutionTool(codeExecFileIDs(params)))
@@ -760,12 +764,11 @@ func (c *OpenAIClient) generateWithToolsResponsesStream(ctx context.Context, pro
 			Reasoning: shared.ReasoningParam{Effort: shared.ReasoningEffort(params.LLMConfig.Reasoning)},
 			Store:     openai.Bool(true),
 		}
-		// Disable parallel tool calls so the model emits at most one tool call per
-		// turn and must observe each result before choosing the next. This keeps
-		// multi-step discovery in order (try one source, fall through only if it
-		// misses) instead of firing several lookups speculatively at once.
-		if len(responseTools) > 0 {
-			baseReq.ParallelToolCalls = param.NewOpt(false)
+		// Honor an explicit parallel_tool_calls override (e.g. set false so the
+		// model emits one tool call per turn and resolves multi-step lookups in
+		// order). Nil leaves the provider default in place.
+		if len(responseTools) > 0 && params.LLMConfig != nil && params.LLMConfig.ParallelToolCalls != nil {
+			baseReq.ParallelToolCalls = param.NewOpt(*params.LLMConfig.ParallelToolCalls)
 		}
 		if params.SystemMessage != "" {
 			baseReq.Instructions = openai.String(params.SystemMessage)
