@@ -105,11 +105,7 @@ func (c *OpenAIClient) generateWithResponsesAPI(ctx context.Context, prompt stri
 	if len(tools) > 0 {
 		req.Tools = buildResponseTools(tools)
 		req.ToolChoice = responses.ResponseNewParamsToolChoiceUnion{OfToolChoiceMode: param.NewOpt(responses.ToolChoiceOptionsAuto)}
-		parallelToolCalls := true
-		if params.LLMConfig != nil && params.LLMConfig.ParallelToolCalls != nil {
-			parallelToolCalls = *params.LLMConfig.ParallelToolCalls
-		}
-		req.ParallelToolCalls = param.NewOpt(parallelToolCalls)
+		req.ParallelToolCalls = param.NewOpt(true)
 	}
 	if params.EnableCodeExecution {
 		req.Tools = append(req.Tools, buildCodeExecutionTool(codeExecFileIDs(params)))
@@ -763,12 +759,6 @@ func (c *OpenAIClient) generateWithToolsResponsesStream(ctx context.Context, pro
 			Tools:     responseTools,
 			Reasoning: shared.ReasoningParam{Effort: shared.ReasoningEffort(params.LLMConfig.Reasoning)},
 			Store:     openai.Bool(true),
-		}
-		// Honor an explicit parallel_tool_calls override (e.g. set false so the
-		// model emits one tool call per turn and resolves multi-step lookups in
-		// order). Nil leaves the provider default in place.
-		if len(responseTools) > 0 && params.LLMConfig != nil && params.LLMConfig.ParallelToolCalls != nil {
-			baseReq.ParallelToolCalls = param.NewOpt(*params.LLMConfig.ParallelToolCalls)
 		}
 		if params.SystemMessage != "" {
 			baseReq.Instructions = openai.String(params.SystemMessage)
