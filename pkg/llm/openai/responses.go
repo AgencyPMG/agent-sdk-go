@@ -760,6 +760,13 @@ func (c *OpenAIClient) generateWithToolsResponsesStream(ctx context.Context, pro
 			Reasoning: shared.ReasoningParam{Effort: shared.ReasoningEffort(params.LLMConfig.Reasoning)},
 			Store:     openai.Bool(true),
 		}
+		// Disable parallel tool calls so the model emits at most one tool call per
+		// turn and must observe each result before choosing the next. This keeps
+		// multi-step discovery in order (try one source, fall through only if it
+		// misses) instead of firing several lookups speculatively at once.
+		if len(responseTools) > 0 {
+			baseReq.ParallelToolCalls = param.NewOpt(false)
+		}
 		if params.SystemMessage != "" {
 			baseReq.Instructions = openai.String(params.SystemMessage)
 		}
